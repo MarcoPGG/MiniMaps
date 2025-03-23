@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Maps</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 80vh; }
+    </style>
+</head>
+<body>
+    <div class="container mt-3">
+        <h2 class="text-center">Mini Maps - Ruta Interactiva</h2>
+        <div class="input-group mb-3">
+            <input type="text" id="start" class="form-control" placeholder="Origen" />
+            <input type="text" id="end" class="form-control" placeholder="Destino" />
+            <button class="btn btn-primary" onclick="calculateRoute()">Calcular Ruta</button>
+            <button class="btn btn-danger" onclick="clearRoute()">Limpiar</button>
+        </div>
+        <!-- Elemento para mostrar la distancia total -->
+        <p id="distanceInfo" class="text-center mt-2"></p>
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        let map = L.map('map').setView([20, -100], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        let routeLayer;
+        let routeMarkers = [];
+        let startMarker, endMarker;
+        
+        // Íconos personalizados para origen y destino (más grandes)
+        var startIcon = L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+            iconSize: [35, 55],
+            iconAnchor: [17, 55],
+            popupAnchor: [0, -55]
+        });
+
+        var endIcon = L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+            iconSize: [35, 55],
+            iconAnchor: [17, 55],
+            popupAnchor: [0, -55]
+        });
+
+        async function getCoordinates(location) {
+            let response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${location}`);
+            let data = await response.json();
+            return data.length > 0 ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] : null;
+        }
+
+        async function calculateRoute() {
+            let start = document.getElementById("start").value;
+            let end = document.getElementById("end").value;
+            
+            if (!start || !end) {
+                alert("Por favor ingresa ambas ubicaciones");
+                return;
+            }
+            
+            let startCoords = await getCoordinates(start);
+            let endCoords = await getCoordinates(end);
+            
+            if (!startCoords || !endCoords) {
+                alert("No se pudieron encontrar las ubicaciones");
+                return;
+            }
+            
+            // Limpiar capas y marcadores previos
+            if (routeLayer) map.removeLayer(routeLayer);
+            if (startMarker) map.removeLayer(startMarker);
+            if (endMarker) map.removeLayer(endMarker);
+            routeMarkers.forEach(marker => map.removeLayer(marker));
+            routeMarkers = [];
+            document.getElementById("distanceInfo").innerText = "";
+            
+            // Se añade el parámetro steps=true para obtener información detallada
+            let routeUrl = `https://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson&steps=true`;
+            let response = await fetch(routeUrl);
+            let data = await response.json();
+            
+            // Dibujar la ruta principal
+            let routeCoords = data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            routeLayer = L.polyline(routeCoords, { color: 'blue' }).addTo(map);
+            map.fitBounds(routeLayer.getBounds());
+            
+            // Mostrar la distancia total en kilómetros (convertir de metros)
+            let totalDistanceKm = (data.routes[0].distance / 1000).toFixed(2);
+            document.getElementById("distanceInfo").innerText = `Distancia total: ${totalDistanceKm} km`;
+            
+            // Agregar marcadores para cada paso de la ruta
+            let steps = data.routes[0].legs[0].steps;
+            steps.forEach(step => {
+                let loc = step.maneuver.location;
+                let lat = loc[1];
+                let lon = loc[0];
+                let streetName = step.name ? step.name : "Sin nombre";
+                let marker = L.circleMarker([lat, lon], { radius: 5, color: 'red' }).addTo(map);
+                marker.bindTooltip("Calle: " + streetName, {permanent: false, direction: 'top'});
+                routeMarkers.push(marker);
+            });
+            
+            // Agregar marcadores personalizados para origen y destino
+            startMarker = L.marker(startCoords, {icon: startIcon}).addTo(map);
+            startMarker.bindTooltip("Origen: " + start, {permanent: false, direction: 'top'});
+            
+            endMarker = L.marker(endCoords, {icon: endIcon}).addTo(map);
+            endMarker.bindTooltip("Destino: " + end, {permanent: false, direction: 'top'});
+        }
+
+        function clearRoute() {
+            document.getElementById("start").value = "";
+            document.getElementById("end").value = "";
+            document.getElementById("distanceInfo").innerText = "";
+            if (routeLayer) map.removeLayer(routeLayer);
+            if (startMarker) map.removeLayer(startMarker);
+            if (endMarker) map.removeLayer(endMarker);
+            routeMarkers.forEach(marker => map.removeLayer(marker));
+            routeMarkers = [];
+        }
+    </script>
+</body>
+</html>
